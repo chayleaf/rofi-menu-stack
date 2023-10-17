@@ -202,11 +202,11 @@ impl<'a> Visitor<'a> for ModeOptionsVisitor {
     }
     fn visit_map<A: serde::de::MapAccess<'a>>(self, mut map: A) -> Result<Self::Value, A::Error> {
         let mut ret = Self::Value::default();
-        while let Some(key) = map.next_key::<&str>()? {
-            match key {
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
                 "prompt" => ret.prompt = map.next_value()?,
                 "message" => ret.message = map.next_value()?,
-                "markup" => match map.next_value::<&str>()? {
+                "markup" => match map.next_value::<String>()?.as_str() {
                     "pango" => ret.markup = Markup::Pango,
                     key => return Err(serde::de::Error::unknown_variant(key, Markup::FIELDS)),
                 },
@@ -364,7 +364,8 @@ fn main() {
             .expect("failed writing into stdout");
         out.write_all(b"\n").expect("failed writing into stdout");
     }
-    let mut opts: ModeOptions = serde_json::from_str(&line).expect("failed to parse menu options");
+    eprintln!("opts: {line:?}");
+    let mut opts: ModeOptions = json5::from_str(&line).expect("failed to parse menu options");
     if let Some(fallback) = &mut opts.fallback {
         if fallback.next_script.is_none() {
             fallback.next_script = Some(FallbackStackOp::Push(entry.clone()));
@@ -388,7 +389,7 @@ fn main() {
         if enable_debug {
             eprintln!("got a row {line:?}");
         }
-        match serde_json::from_str::<Row>(line) {
+        match json5::from_str::<Row>(line) {
             Ok(mut row) => {
                 if row.next_script.is_none() {
                     row.next_script = Some(StackOp::Push(entry.clone()));
@@ -403,7 +404,7 @@ fn main() {
                 }
             }
             Err(err) => {
-                eprintln!("row parse error ({line}): {err:?}");
+                eprintln!("row parse error ({line}):\n{err}");
             }
         }
     }

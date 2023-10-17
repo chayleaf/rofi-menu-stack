@@ -52,8 +52,8 @@ impl<'a> Visitor<'a> for RowVisitor {
     }
     fn visit_map<A: serde::de::MapAccess<'a>>(self, mut map: A) -> Result<Self::Value, A::Error> {
         let mut ret = Self::Value::default();
-        while let Some(key) = map.next_key::<&str>()? {
-            match key {
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
                 "push" => ret.ops = map.next_value()?,
                 "jump" => ret.next_script = Some(map.next_value()?),
                 "exec" => ret.exec = map.next_value()?,

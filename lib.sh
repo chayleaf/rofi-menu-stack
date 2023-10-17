@@ -17,3 +17,6 @@ row() {
   echo "$1"
 }
 
+quote() {
+  echo -n "$@" | jq -Rs .
+}

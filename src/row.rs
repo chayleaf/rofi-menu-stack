@@ -130,8 +130,8 @@ impl<'a> Visitor<'a> for RowVisitor {
     }
     fn visit_map<A: serde::de::MapAccess<'a>>(self, mut map: A) -> Result<Self::Value, A::Error> {
         let mut ret = Self::Value::default();
-        while let Some(key) = map.next_key::<&str>()? {
-            match key {
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
                 "text" => ret.text = map.next_value()?,
                 "icon" => ret.icon = map.next_value()?,
                 "meta" => ret.meta = map.next_value()?,
