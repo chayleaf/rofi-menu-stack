@@ -7,7 +7,7 @@ use std::{
     str::FromStr, os::fd::AsRawFd,
 };
 
-const DELIM: &str = "\n"; // "04e558f3-b272-4389-b679-6feed98ac1dc";
+const DELIM: &str = "\x0b";
 
 #[derive(Debug, Default, Eq, PartialEq)]
 enum Selection {
