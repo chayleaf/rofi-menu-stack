@@ -9,7 +9,7 @@ use std::{
 
 const DELIM: &str = "\n"; // "04e558f3-b272-4389-b679-6feed98ac1dc";
 
-#[derive(Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Default, Eq, PartialEq)]
 enum Selection {
     /// Reset selection to the first item
     #[default]
@@ -17,7 +17,60 @@ enum Selection {
     /// Keep previously selected item
     Keep,
     /// Set selection to item X
-    Set(isize),
+    Set(i64),
+}
+
+struct SelectionVisitor;
+impl<'a> Visitor<'a> for SelectionVisitor {
+    type Value = Selection;
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("selection")
+    }
+    fn visit_unit<E>(self) -> Result<Self::Value, E> where E: serde::de::Error {
+        Ok(Selection::Keep)
+    }
+    /*fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E> where E: serde::de::Error {
+        Ok(Selection::Set(v as i64))
+    }
+    fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E> where E: serde::de::Error {
+        Ok(Selection::Set(v as i64))
+    }*/
+    fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v.into()))
+    }
+    fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v.into()))
+    }
+    fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v.into()))
+    }
+    fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v.into()))
+    }
+    fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v.into()))
+    }
+    fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v.into()))
+    }
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v))
+    }
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v as i64))
+    }
+    fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v as i64))
+    }
+    fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E> where E: serde::de::Error, {
+        Ok(Selection::Set(v as i64))
+    }
+}
+
+impl<'a> Deserialize<'a> for Selection {
+    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
+        d.deserialize_any(SelectionVisitor)
+    }
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -60,7 +113,7 @@ impl Default for ModeOptions {
 }
 
 impl ModeOptions {
-    const FIELDS: &[&'static str] = &["prompt", "message", "markup", "allow-custom"];
+    const FIELDS: &[&'static str] = &["prompt", "message", "markup", "allow-custom", "selection"];
     fn to_rofi(&self) -> String {
         let mut ret = "".to_owned();
         if !self.prompt.is_empty() {
@@ -121,6 +174,7 @@ impl<'a> Visitor<'a> for ModeOptionsVisitor {
                     key => return Err(serde::de::Error::unknown_variant(key, Markup::FIELDS)),
                 },
                 "allow-custom" => ret.allow_custom = map.next_value()?,
+                "selection" => ret.selection = map.next_value()?,
                 // TODO: selection
                 key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
             }
