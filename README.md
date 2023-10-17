@@ -29,10 +29,22 @@ So, each entry is defined as follows:
   selected (`$1` is top of stack)
 - `push: null` - remove a value from the top of the stack when this
   option is selected
-- `push: 0` - push user input on top of the stack
 - `push: [...]` - same as `push` multiple times in a row for each entry
   in the list
 - `jump: <string>` - switch to a different submenu when this option is
   selected
 - `jump: null` - close the submenu
 
+# General options
+
+General options are printed before all entries, and are mandatory.
+
+- `prompt: <string>` - user prompt
+- `message: <string>` - user-facing message (notice, etc)
+- `markup: "pango"` - to enable pango markup
+- `selection: 1` - to select item number 1 (0-based)
+- `selection: "keep"` - to keep whatever was selected previously
+- `fallback: {...}` - this allows the user to input custom text. If the
+  user entered it, the `push` and `jump` operations in `fallback` will
+  be executed. *Additionally*, `push` may be set to `0` (or a list
+  containing `0`) to push the user-provided input value to the stack.

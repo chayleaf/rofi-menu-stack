@@ -2,10 +2,20 @@ use fork::{daemon, Fork};
 use serde::{de::Visitor, Deserialize};
 use std::{
     env,
-    io::{stdout, BufRead, BufReader, Write, Read, stderr, stdin},
+    io::{stderr, stdin, stdout, BufRead, BufReader, Read, Write},
+    os::fd::AsRawFd,
     process::{Command, Stdio},
-    str::FromStr, os::fd::AsRawFd,
 };
+
+mod row;
+mod row2;
+mod stack_op;
+mod stack_op2;
+
+use row::*;
+use row2::*;
+use stack_op::*;
+use stack_op2::*;
 
 const DELIM: &str = "\x0b";
 
@@ -26,43 +36,70 @@ impl<'a> Visitor<'a> for SelectionVisitor {
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("selection")
     }
-    fn visit_unit<E>(self) -> Result<Self::Value, E> where E: serde::de::Error {
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Keep)
     }
-    /*fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E> where E: serde::de::Error {
-        Ok(Selection::Set(v as i64))
-    }
-    fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E> where E: serde::de::Error {
-        Ok(Selection::Set(v as i64))
-    }*/
-    fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v.into()))
     }
-    fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v.into()))
     }
-    fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v.into()))
     }
-    fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v.into()))
     }
-    fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v.into()))
     }
-    fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v.into()))
     }
-    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v))
     }
-    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v as i64))
     }
-    fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v as i64))
     }
-    fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E> where E: serde::de::Error, {
+    fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
         Ok(Selection::Set(v as i64))
     }
 }
@@ -91,12 +128,12 @@ struct ModeOptions {
     message: String,
     /// Markup format
     markup: Markup,
-    /// Whether to allow freeform text input
-    allow_custom: bool,
     /// Selection mode
     selection: Selection,
     /// Next ROFI_DATA
     data: String,
+    /// Fallback for freeform text input
+    fallback: Option<FallbackRow>,
 }
 
 impl Default for ModeOptions {
@@ -105,9 +142,9 @@ impl Default for ModeOptions {
             prompt: "".to_owned(),
             message: "".to_owned(),
             markup: Markup::None,
-            allow_custom: false,
             selection: Selection::Reset,
             data: "".to_owned(),
+            fallback: None,
         }
     }
 }
@@ -130,7 +167,7 @@ impl ModeOptions {
             ret.push_str("\0markup-rows\x1Ftrue");
             ret.push_str(DELIM);
         }
-        if !self.allow_custom {
+        if self.fallback.is_none() {
             ret.push_str("\0no-custom\x1Ftrue");
             ret.push_str(DELIM);
         }
@@ -173,7 +210,7 @@ impl<'a> Visitor<'a> for ModeOptionsVisitor {
                     "pango" => ret.markup = Markup::Pango,
                     key => return Err(serde::de::Error::unknown_variant(key, Markup::FIELDS)),
                 },
-                "allow-custom" => ret.allow_custom = map.next_value()?,
+                "fallback" => ret.fallback = map.next_value()?,
                 "selection" => ret.selection = map.next_value()?,
                 // TODO: selection
                 key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
@@ -189,388 +226,6 @@ impl<'a> Deserialize<'a> for ModeOptions {
     }
 }
 
-#[derive(Eq, PartialEq)]
-enum StackOp {
-    Push(Option<String>),
-    Pop,
-}
-
-impl StackOp {
-    fn apply(self, user_input: &str, stack: &mut Vec<String>) {
-        match self {
-            Self::Push(Some(x)) => stack.push(x),
-            Self::Push(None) => stack.push(user_input.to_owned()),
-            Self::Pop => {
-                stack.pop();
-            }
-        }
-    }
-}
-
-impl ToString for StackOp {
-    fn to_string(&self) -> String {
-        let mut ret = "".to_owned();
-        match self {
-            Self::Push(Some(x)) => {
-                ret.push('\x01');
-                ret.push_str(x);
-            }
-            Self::Pop => {
-                ret.push('\x02');
-            }
-            Self::Push(None) => {
-                ret.push('\x04');
-            }
-        }
-        ret
-    }
-}
-
-struct StackOps(Vec<StackOp>);
-
-impl ToString for StackOps {
-    fn to_string(&self) -> String {
-        let mut ret = "".to_owned();
-        for op in &self.0 {
-            ret += &op.to_string();
-            ret.push('\x03');
-        }
-        ret.pop();
-        ret
-    }
-}
-
-impl FromStr for StackOp {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.chars().next() {
-            Some('\x01') => Ok(Self::Push(Some(s[1..].to_owned()))),
-            Some('\x02') => Ok(Self::Pop),
-            Some('\x04') => Ok(Self::Push(None)),
-            _ => Err(()),
-        }
-    }
-}
-
-impl FromStr for StackOps {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut ret = vec![];
-        for v in s.split('\x03') {
-            ret.push(v.parse::<StackOp>()?);
-        }
-        Ok(Self(ret))
-    }
-}
-
-struct StackOpVisitor;
-impl<'a> Visitor<'a> for StackOpVisitor {
-    type Value = StackOp;
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("string/null/int")
-    }
-    fn visit_unit<E>(self) -> Result<Self::Value, E> where E: serde::de::Error {
-        Ok(StackOp::Pop)
-    }
-    fn visit_none<E>(self) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(StackOp::Pop)
-    }
-    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-        Ok(StackOp::Push(Some(v.to_owned())))
-    }
-    fn visit_i8<E>(self, _: i8) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_u8<E>(self, _: u8) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_i16<E>(self, _: i16) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_u16<E>(self, _: u16) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_i32<E>(self, _: i32) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_u32<E>(self, _: u32) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_i64<E>(self, _: i64) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_u64<E>(self, _: u64) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_i128<E>(self, _: i128) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_u128<E>(self, _: u128) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOp::Push(None))
-    }
-    fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
-        Ok(StackOp::Push(Some(v)))
-    }
-    fn visit_borrowed_str<E>(self, v: &'a str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(StackOp::Push(Some(v.to_owned())))
-    }
-    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'a>,
-    {
-        deserializer.deserialize_any(self)
-    }
-    fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error> where D: serde::Deserializer<'a> {
-        deserializer.deserialize_any(self)
-    }
-}
-
-impl<'a> Deserialize<'a> for StackOp {
-    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_any(StackOpVisitor)
-    }
-}
-
-struct StackOpsVisitor;
-impl<'a> Visitor<'a> for StackOpsVisitor {
-    type Value = StackOps;
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("string/null/list of strings/null")
-    }
-    fn visit_unit<E>(self) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(StackOps(vec![StackOp::Pop]))
-    }
-    fn visit_none<E>(self) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(StackOps(vec![StackOp::Pop]))
-    }
-    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-        Ok(StackOps(vec![StackOp::Push(Some(v.to_owned()))]))
-    }
-    fn visit_i8<E>(self, _: i8) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_u8<E>(self, _: u8) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_i16<E>(self, _: i16) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_u16<E>(self, _: u16) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_i32<E>(self, _: i32) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_u32<E>(self, _: u32) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_i64<E>(self, _: i64) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_u64<E>(self, _: u64) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_i128<E>(self, _: i128) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_u128<E>(self, _: u128) -> Result<Self::Value, E> where E: serde::de::Error, {
-        Ok(StackOps(vec![StackOp::Push(None)]))
-    }
-    fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
-        Ok(StackOps(vec![StackOp::Push(Some(v))]))
-    }
-    fn visit_borrowed_str<E>(self, v: &'a str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(StackOps(vec![StackOp::Push(Some(v.to_owned()))]))
-    }
-    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'a>,
-    {
-        deserializer.deserialize_any(self)
-    }
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::SeqAccess<'a>,
-    {
-        let mut ret = vec![];
-        while let Some(elem) = seq.next_element::<StackOp>()? {
-            ret.push(elem);
-        }
-        Ok(StackOps(ret))
-    }
-}
-
-impl<'a> Deserialize<'a> for StackOps {
-    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_any(StackOpsVisitor)
-    }
-}
-
-struct Row {
-    text: String,
-    icon: String,
-    meta: String,
-    selectable: bool,
-    next_script: Option<StackOp>,
-    exec: String,
-    fork: bool,
-    ops: StackOps,
-    urgent: bool,
-    active: bool,
-}
-
-impl Default for Row {
-    fn default() -> Self {
-        Self {
-            text: "".to_owned(),
-            icon: "".to_owned(),
-            meta: "".to_owned(),
-            selectable: true,
-            next_script: None,
-            exec: "".to_owned(),
-            fork: false,
-            ops: StackOps(vec![]),
-            urgent: false,
-            active: false,
-        }
-    }
-}
-
-impl Row {
-    const FIELDS: &[&'static str] = &[
-        "text",
-        "icon",
-        "meta",
-        "selectable",
-        "push",
-        "jump",
-        "exec",
-        "fork",
-        "urgent",
-        "active",
-    ];
-
-    fn to_rofi(&self) -> Option<String> {
-        if self.text.is_empty() {
-            return None;
-        }
-        let mut ret = self.text.clone();
-        ret.push('\0');
-        if !self.icon.is_empty() {
-            ret.push_str("icon\x1F");
-            ret.push_str(&self.icon);
-            ret.push('\x1F');
-        }
-        if !self.meta.is_empty() {
-            ret.push_str("meta\x1F");
-            ret.push_str(&self.meta);
-            ret.push('\x1F');
-        }
-        if !self.selectable {
-            ret.push_str("nonselectable\x1Ftrue\x1F");
-        }
-        if !self.ops.0.is_empty() || self.next_script.is_some() {
-            ret.push_str("info\x1F");
-            ret.push_str(&self.ops.to_string());
-            if let Some(op0) = &self.next_script {
-                if !self.ops.0.is_empty() {
-                    ret.push('\x03');
-                }
-                ret.push_str(&op0.to_string());
-                if !self.exec.is_empty() {
-                    ret.push(';');
-                    if self.fork {
-                        ret.push(';');
-                    }
-                    ret.push_str(&self.exec);
-                }
-            }
-            ret.push('\x1F');
-        }
-        if self.urgent {
-            ret.push_str("urgent\x1Ftrue\x1F");
-        }
-        if self.active {
-            ret.push_str("active\x1Ftrue\x1F");
-        }
-        ret.pop();
-        Some(ret)
-    }
-}
-
-struct RowVisitor;
-impl<'a> Visitor<'a> for RowVisitor {
-    type Value = Row;
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a string or an object")
-    }
-    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-        Ok(Self::Value {
-            text: v.to_owned(),
-            ..Self::Value::default()
-        })
-    }
-    fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
-        Ok(Self::Value {
-            text: v,
-            ..Self::Value::default()
-        })
-    }
-    fn visit_borrowed_str<E>(self, v: &'a str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Self::Value {
-            text: v.to_owned(),
-            ..Self::Value::default()
-        })
-    }
-    fn visit_map<A: serde::de::MapAccess<'a>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-        let mut ret = Self::Value::default();
-        while let Some(key) = map.next_key::<&str>()? {
-            match key {
-                "text" => ret.text = map.next_value()?,
-                "icon" => ret.icon = map.next_value()?,
-                "meta" => ret.meta = map.next_value()?,
-                "selectable" => ret.selectable = map.next_value()?,
-                "push" => {
-                    ret.ops = map.next_value()?;
-                }
-                "jump" => {
-                    ret.next_script = Some(map.next_value::<StackOp>()?);
-                }
-                "exec" => ret.exec = map.next_value()?,
-                "fork" => ret.fork = map.next_value()?,
-                "urgent" => ret.urgent = map.next_value()?,
-                "active" => ret.active = map.next_value()?,
-                key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
-            }
-        }
-        Ok(ret)
-    }
-}
-
-impl<'a> Deserialize<'a> for Row {
-    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_any(RowVisitor)
-    }
-}
-
 fn main() {
     // 0: init
     // 1: selected entry
@@ -580,9 +235,9 @@ fn main() {
     // common info
     let data = env::var("ROFI_DATA").ok();
     // row info
-    let info = env::var("ROFI_INFO").ok();
+    let mut info = env::var("ROFI_INFO").ok();
     let input = env::args().nth(1);
-    let first_launch = info.is_none();
+    let first_launch = info.is_none() && data.is_none();
     let enable_debug = cfg!(debug_assertions);
     if enable_debug {
         eprintln!("data {data:?}, info {info:?}");
@@ -591,21 +246,34 @@ fn main() {
     // let selected = env::args().nth(1);
     let mut stack = Vec::<String>::new();
     if let Some(data) = data {
-        for val in data.split('\x03').skip(1) {
-            stack.push(val.to_owned());
+        let mut it = data.split('\x04');
+        if let Some(fallback) = it.next() {
+            for val in it {
+                stack.push(val.to_owned());
+            }
+            if info.is_none() {
+                info = Some(fallback.to_owned());
+                if enable_debug {
+                    eprintln!("new info {info:?}");
+                }
+            }
         }
     }
+    let input = input.as_deref().unwrap_or_default();
     let entry = if let Some(info) = info {
-        let mut ops: StackOps = info
+        let mut ops: FallbackStackOps = info
             .parse()
             .expect("invalid ROFI_INFO (expected stack operation list)");
         if !ops.0.is_empty() {
             for op in ops.0.drain(..ops.0.len() - 1) {
-                op.apply(input.as_deref().unwrap_or(""), &mut stack);
+                op.apply(input, &mut stack);
             }
             match ops.0.into_iter().next().unwrap() {
-                StackOp::Push(s) => {
-                    let mut s = s.unwrap_or_else(|| input.unwrap());
+                x @ (FallbackStackOp::Push(_) | FallbackStackOp::PushUser) => {
+                    let mut s = match x {
+                        FallbackStackOp::Push(s) => s,
+                        _ => input.to_owned(),
+                    };
                     if enable_debug {
                         eprintln!("using {s}");
                     }
@@ -650,7 +318,7 @@ fn main() {
                     }
                     s
                 }
-                StackOp::Pop => {
+                FallbackStackOp::Pop => {
                     if enable_debug {
                         eprintln!("quitting!");
                     }
@@ -697,8 +365,14 @@ fn main() {
         out.write_all(b"\n").expect("failed writing into stdout");
     }
     let mut opts: ModeOptions = serde_json::from_str(&line).expect("failed to parse menu options");
+    if let Some(fallback) = &mut opts.fallback {
+        if fallback.next_script.is_none() {
+            fallback.next_script = Some(FallbackStackOp::Push(entry.clone()));
+        }
+        opts.data.push_str(&fallback.info());
+    }
     for elem in stack {
-        opts.data.push('\x03');
+        opts.data.push('\x04');
         opts.data.push_str(&elem);
     }
     write!(out, "{}", opts.to_rofi()).expect("failed writing menu options into stdout");
@@ -717,7 +391,7 @@ fn main() {
         match serde_json::from_str::<Row>(line) {
             Ok(mut row) => {
                 if row.next_script.is_none() {
-                    row.next_script = Some(StackOp::Push(Some(entry.clone())));
+                    row.next_script = Some(StackOp::Push(entry.clone()));
                 }
                 if let Some(row) = row.to_rofi() {
                     if first {
