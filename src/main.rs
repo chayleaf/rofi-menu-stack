@@ -311,6 +311,15 @@ impl Default for Info {
     }
 }
 
+fn parse_var(var: String) -> Result<Vec<String>, json5::Error> {
+    let v = var.trim();
+    if v.starts_with('[') && v.ends_with(']') {
+        json5::from_str(&var)
+    } else {
+        Ok(vec![var])
+    }
+}
+
 fn main() {
     // 0: init
     // 1: selected entry
@@ -321,14 +330,13 @@ fn main() {
     let data = env::var("ROFI_DATA").ok();
     // row info
     let info = env::var("ROFI_INFO").ok();
+    // row text
     let input = env::args().nth(1);
     let first_launch = info.is_none() && data.is_none();
     let enable_debug = cfg!(debug_assertions);
     if enable_debug {
         eprintln!("data {data:?}, info {info:?}");
     }
-    // row text
-    // let selected = env::args().nth(1);
     let mut data: Data = json5::from_str(&data.unwrap_or_default()).unwrap_or_default();
     let info: Info = json5::from_str(
         info.as_deref()
@@ -350,12 +358,16 @@ fn main() {
     }
     if data.script_stack.is_empty() {
         eprintln!("pushing initial_script");
-        data.script_stack.push(
-            env::var("INITIAL_SCRIPT")
-                .expect("INITIAL_SCRIPT must be set as the default submenu to call"),
+        data.script_stack.extend(
+            parse_var(
+                env::var("INITIAL_SCRIPT")
+                    .expect("INITIAL_SCRIPT must be set as the default submenu to call"),
+            )
+            .expect("INITIAL_SCRIPT must be valid json5"),
         );
         if let Ok(x) = env::var("INITIAL_STACK") {
-            data.val_stack.push(x);
+            data.val_stack
+                .extend(parse_var(x).expect("INITIAL_STACK must be valid json5"));
         }
     }
     if !info.exec.is_empty() {

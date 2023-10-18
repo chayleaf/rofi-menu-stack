@@ -34,6 +34,8 @@ So, each entry is defined as follows:
   is selected, same format as `push`
 - `return: null` - close the submenu
 - `return: 1` - go to the previous submenu (same as `pop`)
+- `goto: <string>` - shorthand for `return: 1; jump: <string>` (jumps to
+  another script without remembering this script)
 - `exec: <string>` - bash command to execute
 - `fork: true` - don't wait for the bash command's completion and
   run it in the background

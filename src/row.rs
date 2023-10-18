@@ -36,6 +36,7 @@ impl Row {
         "push",
         "pop",
         "jump",
+        "goto",
         "exec",
         "fork",
         "urgent",
@@ -117,6 +118,10 @@ impl<'a> Visitor<'a> for RowVisitor {
                 "push" => ret.info.push_val = map.next_value()?,
                 "pop" => ret.info.pop_val = map.next_value()?,
                 "jump" => ret.info.push_script = map.next_value()?,
+                "goto" => {
+                    ret.info.pop_script = Some(1);
+                    ret.info.push_script = map.next_value()?;
+                }
                 "return" => ret.info.pop_script = map.next_value()?,
                 "exec" => ret.info.exec = map.next_value()?,
                 "fork" => ret.info.fork = map.next_value()?,
