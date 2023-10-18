@@ -9,8 +9,8 @@ use std::{
 mod fallback_row;
 mod row;
 
-use fallback_row::*;
-use row::*;
+use fallback_row::FallbackRow;
+use row::Row;
 
 const DELIM: char = '\x0b';
 
@@ -108,9 +108,7 @@ struct ModeOptions {
     /// Selection mode
     selection: Selection,
     /// Next ROFI_DATA
-    data: String,
-    /// Fallback for freeform text input
-    fallback: Option<FallbackRow>,
+    data: Data,
 }
 
 impl Default for ModeOptions {
@@ -120,8 +118,7 @@ impl Default for ModeOptions {
             message: String::new(),
             markup: Markup::None,
             selection: Selection::Reset,
-            data: String::new(),
-            fallback: None,
+            data: Data::default(),
         }
     }
 }
@@ -144,7 +141,7 @@ impl ModeOptions {
             ret.push_str("\0markup-rows\x1Ftrue");
             ret.push(DELIM);
         }
-        if self.fallback.is_none() {
+        if self.data.fallback.is_none() {
             ret.push_str("\0no-custom\x1Ftrue");
             ret.push(DELIM);
         }
@@ -162,11 +159,9 @@ impl ModeOptions {
                 ret.push(DELIM);
             }
         }
-        if !self.data.is_empty() {
-            ret.push_str("\0data\x1F");
-            ret.push_str(&self.data);
-            ret.push(DELIM);
-        }
+        ret.push_str("\0data\x1F");
+        ret.push_str(&json5::to_string(&self.data).expect("failed to serialize data"));
+        ret.push(DELIM);
         ret
     }
 }
@@ -187,7 +182,7 @@ impl<'a> Visitor<'a> for ModeOptionsVisitor {
                     "pango" => ret.markup = Markup::Pango,
                     key => return Err(serde::de::Error::unknown_variant(key, Markup::FIELDS)),
                 },
-                "fallback" => ret.fallback = map.next_value()?,
+                "fallback" => ret.data.fallback = Some(map.next_value::<FallbackRow>()?.0),
                 "selection" => ret.selection = map.next_value()?,
                 key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
             }
@@ -310,17 +305,17 @@ impl<'de> Deserialize<'de> for VecString {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Data {
-    script_stack: Vec<String>,
-    val_stack: Vec<String>,
-    fallback_info: Option<Info>,
+    stack: Vec<String>,
+    call_stack: Vec<String>,
+    fallback: Option<Info>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Info {
-    pub push_script: VecString,
-    pub push_val: VecString,
-    pub pop_script: Option<usize>,
-    pub pop_val: Option<usize>,
+    pub push_call: VecString,
+    pub push: VecString,
+    pub pop_call: Option<usize>,
+    pub pop: Option<usize>,
     pub exec: VecString,
     pub fork: bool,
 }
@@ -328,10 +323,10 @@ pub struct Info {
 impl Default for Info {
     fn default() -> Self {
         Self {
-            push_script: VecString::Multi(vec![]),
-            push_val: VecString::Multi(vec![]),
-            pop_val: Some(0),
-            pop_script: Some(0),
+            push: VecString::Multi(vec![]),
+            push_call: VecString::Multi(vec![]),
+            pop: Some(0),
+            pop_call: Some(0),
             exec: VecString::Multi(vec![]),
             fork: false,
         }
@@ -368,7 +363,7 @@ fn main() {
     let info: Info = info
         .as_deref()
         .map(|info| json5::from_str(info).expect("failed to parse info"))
-        .unwrap_or_else(|| data.fallback_info.clone().unwrap_or_default());
+        .unwrap_or_else(|| data.fallback.clone().unwrap_or_default());
     let input = input.as_deref().unwrap_or_default();
     if !info.exec.is_empty() {
         let mut run = !info.fork;
@@ -382,10 +377,8 @@ fn main() {
             let mut cmd = Command::new("bash");
             cmd.arg("-c");
             if matches!(info.exec, VecString::Multi(_)) {
-                cmd.arg("\"$0\" \"$@\"");
-                for x in info.exec.flatten1(input).into_iter() {
-                    cmd.arg(x);
-                }
+                cmd.arg("\"$0\" \"$@\"")
+                    .args(info.exec.flatten1(input).into_iter());
             } else {
                 cmd.arg(info.exec.flatten(input));
             }
@@ -397,9 +390,11 @@ fn main() {
             }
         }
     }
-    if data.script_stack.is_empty() {
-        eprintln!("pushing initial_script");
-        data.script_stack.extend(
+    if data.call_stack.is_empty() {
+        if enable_debug {
+            eprintln!("pushing initial_script");
+        }
+        data.call_stack.extend(
             parse_var(
                 env::var("INITIAL_SCRIPT")
                     .expect("INITIAL_SCRIPT must be set as the default submenu to call"),
@@ -407,51 +402,49 @@ fn main() {
             .expect("INITIAL_SCRIPT must be valid json5"),
         );
         if let Ok(x) = env::var("INITIAL_STACK") {
-            data.val_stack = parse_var(x).expect("INITIAL_STACK must be valid json5");
+            data.stack = parse_var(x).expect("INITIAL_STACK must be valid json5");
         }
     }
-    if let Some(x) = info.pop_val {
-        if x <= data.val_stack.len() {
-            data.val_stack.truncate(data.val_stack.len() - x);
+    if let Some(x) = info.pop {
+        if x <= data.stack.len() {
+            data.stack.truncate(data.stack.len() - x);
         } else {
             return;
         }
     } else {
-        data.val_stack.clear();
+        data.stack.clear();
     }
-    for x in info.push_val.flatten1(input) {
-        data.val_stack.push(x);
+    for x in info.push.flatten1(input) {
+        data.stack.push(x);
     }
-    if let Some(x) = info.pop_script {
-        if x <= data.script_stack.len() {
-            data.script_stack.truncate(data.script_stack.len() - x);
+    if let Some(x) = info.pop_call {
+        if x <= data.call_stack.len() {
+            data.call_stack.truncate(data.call_stack.len() - x);
         } else {
             return;
         }
     } else {
-        data.script_stack.clear();
+        data.call_stack.clear();
     }
-    for x in info.push_script.flatten1(input) {
-        data.script_stack.push(x);
+    for x in info.push_call.flatten1(input) {
+        data.call_stack.push(x);
     }
     if enable_debug {
         eprintln!("data {data:?}, info {info:?}");
     }
-    if data.script_stack.is_empty() {
+    if data.call_stack.is_empty() {
         return;
     }
     let mut cmd = Command::new("bash");
-    cmd.arg("-c");
-    cmd.arg("\"$0\" \"$@\"");
-    cmd.arg(data.script_stack.last().unwrap());
-    data.val_stack.reverse();
+    cmd.arg("-c")
+        .arg("\"$0\" \"$@\"")
+        .arg(data.call_stack.last().unwrap());
     if enable_debug {
-        eprintln!("passing args {:?}", data.val_stack);
+        data.stack.reverse();
+        eprintln!("passing args {:?}", data.stack);
+        data.stack.reverse();
     }
-    for arg in &data.val_stack {
-        cmd.arg(arg);
-    }
-    data.val_stack.reverse();
+    cmd.args(data.stack.iter().rev());
     cmd.stdout(Stdio::piped());
     let cmd = cmd.spawn().expect("failed to spawn script");
     let mut buf = BufReader::new(cmd.stdout.expect("script is missing stdout?"));
@@ -466,11 +459,14 @@ fn main() {
             .expect("failed writing into stdout");
         out.write_all(b"\n").expect("failed writing into stdout");
     }
-    eprintln!("opts: {line:?}");
+    if enable_debug {
+        eprintln!("opts: {line:?}");
+    }
     let mut opts: ModeOptions = json5::from_str(&line).expect("failed to parse menu options");
-    data.fallback_info = opts.fallback.clone().map(|x| x.0);
-    opts.data = json5::to_string(&data).expect("failed to serialize data");
-    write!(out, "{}", opts.to_rofi()).expect("failed writing menu options into stdout");
+    opts.data.call_stack = data.call_stack;
+    opts.data.stack = data.stack;
+    out.write_all(opts.to_rofi().as_bytes())
+        .expect("failed writing menu options into stdout");
     let mut first = true;
     while let Ok(len) = buf.read_line({
         line.clear();
