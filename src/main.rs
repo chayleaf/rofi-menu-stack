@@ -340,7 +340,7 @@ fn main() {
         if x <= data.val_stack.len() {
             data.val_stack.truncate(data.val_stack.len() - x);
         } else {
-            data.val_stack.clear();
+            return;
         }
     } else {
         data.val_stack.clear();
@@ -354,6 +354,9 @@ fn main() {
             env::var("INITIAL_SCRIPT")
                 .expect("INITIAL_SCRIPT must be set as the default submenu to call"),
         );
+        if let Ok(x) = env::var("INITIAL_STACK") {
+            data.val_stack.push(x);
+        }
     }
     if !info.exec.is_empty() {
         let mut run = !info.fork;
