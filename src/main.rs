@@ -1,5 +1,5 @@
 use fork::Fork;
-use serde::{de::Visitor, Deserialize, Serialize};
+use serde::{de::Visitor, Deserialize, Serialize, ser::SerializeSeq};
 use std::{
     env,
     io::{stdout, BufRead, BufReader, Write},
@@ -202,9 +202,48 @@ impl<'a> Deserialize<'a> for ModeOptions {
     }
 }
 
-#[derive(Debug, Default, Serialize)]
-#[serde(transparent)]
-pub struct VecString(pub Vec<Option<String>>);
+#[derive(Debug)]
+pub enum VecString {
+    Multi(Vec<VecString>),
+    Single(String),
+    UserInput,
+}
+
+impl VecString {
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Multi(x) if x.is_empty())
+    }
+    fn flatten(&self, input: &str) -> String {
+        match self {
+            Self::Multi(v) => v.iter().map(|x| x.flatten(input)).collect::<Vec<_>>().join(""),
+            Self::Single(s) => s.clone(),
+            Self::UserInput => input.to_owned(),
+        }
+    }
+    fn flatten1(&self, input: &str) -> Vec<String> {
+        match self {
+            Self::Multi(v) => v.iter().map(|x| x.flatten(input)).collect(),
+            Self::Single(s) => vec![s.clone()],
+            Self::UserInput => vec![input.to_owned()],
+        }
+    }
+}
+
+impl Serialize for VecString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        match self {
+            Self::UserInput => serializer.serialize_none(),
+            Self::Single(s) => serializer.serialize_some(s),
+            Self::Multi(v) => {
+                let mut seq = serializer.serialize_seq(Some(v.len()))?;
+                for x in v {
+                    seq.serialize_element(x)?;
+                }
+                seq.end()
+            }
+        }
+    }
+}
 
 struct VecStringVisitor;
 impl<'a> Visitor<'a> for VecStringVisitor {
@@ -216,31 +255,31 @@ impl<'a> Visitor<'a> for VecStringVisitor {
     where
         E: serde::de::Error,
     {
-        Ok(VecString(vec![Some(v.to_owned())]))
+        Ok(VecString::Single(v.to_owned()))
     }
     fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(VecString(vec![Some(v)]))
+        Ok(VecString::Single(v))
     }
     fn visit_borrowed_str<E>(self, v: &'a str) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(VecString(vec![Some(v.to_owned())]))
+        Ok(VecString::Single(v.to_owned()))
     }
     fn visit_none<E>(self) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(VecString(vec![None]))
+        Ok(VecString::UserInput)
     }
     fn visit_unit<E>(self) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(VecString(vec![None]))
+        Ok(VecString::UserInput)
     }
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
     where
@@ -250,7 +289,7 @@ impl<'a> Visitor<'a> for VecStringVisitor {
         while let Some(val) = seq.next_element()? {
             ret.push(val);
         }
-        Ok(VecString(ret))
+        Ok(VecString::Multi(ret))
     }
 }
 impl<'de> Deserialize<'de> for VecString {
@@ -282,11 +321,11 @@ pub struct Info {
 impl Default for Info {
     fn default() -> Self {
         Self {
-            push_script: VecString::default(),
-            push_val: VecString::default(),
+            push_script: VecString::Multi(vec![]),
+            push_val: VecString::Multi(vec![]),
             pop_val: Some(0),
             pop_script: Some(0),
-            exec: VecString::default(),
+            exec: VecString::Multi(vec![]),
             fork: false,
         }
     }
@@ -334,8 +373,8 @@ fn main() {
     } else {
         data.val_stack.clear();
     }
-    for op in info.push_val.0.clone() {
-        data.val_stack.push(op.unwrap_or_else(|| input.to_owned()));
+    for x in info.push_val.flatten1(input) {
+        data.val_stack.push(x);
     }
     if data.script_stack.is_empty() {
         eprintln!("pushing initial_script");
@@ -351,7 +390,7 @@ fn main() {
                 .extend(parse_var(x).expect("INITIAL_STACK must be valid json5"));
         }
     }
-    if !info.exec.0.is_empty() {
+    if !info.exec.is_empty() {
         let mut run = !info.fork;
         if info.fork {
             if let Ok(Fork::Child) = fork::daemon(true, true) {
@@ -362,11 +401,14 @@ fn main() {
         if run {
             let mut cmd = Command::new("bash");
             cmd.arg("-c");
-            let mut exec = String::new();
-            for x in &info.exec.0 {
-                exec.push_str(&x.clone().unwrap_or_else(|| input.replace('\'', "'\"'\"'")));
+            if matches!(info.exec, VecString::Multi(_)) {
+                cmd.arg("\"$0\" \"$@\"");
+                for x in info.exec.flatten1(input).into_iter() {
+                    cmd.arg(x);
+                }
+            } else {
+                cmd.arg(info.exec.flatten(input));
             }
-            cmd.arg(&exec);
             if let Ok(mut proc) = cmd.spawn() {
                 let _ = proc.wait();
             }
@@ -384,9 +426,8 @@ fn main() {
     } else {
         data.script_stack.clear();
     }
-    for op in info.push_script.0.clone() {
-        data.script_stack
-            .push(op.unwrap_or_else(|| input.to_owned()));
+    for x in info.push_script.flatten1(input) {
+        data.script_stack.push(x);
     }
     if enable_debug {
         eprintln!("data {data:?}, info {info:?}");
@@ -395,7 +436,8 @@ fn main() {
         return;
     }
     let mut cmd = Command::new("bash");
-    cmd.arg("--");
+    cmd.arg("-c");
+    cmd.arg("\"$0\" \"$@\"");
     cmd.arg(data.script_stack.last().unwrap());
     data.val_stack.reverse();
     if enable_debug {

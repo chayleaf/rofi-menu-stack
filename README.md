@@ -86,18 +86,19 @@ Each entry is defined as follows:
     - If only one item is to be pushed, you can simply use that item
       instead of enclosing it in an array (i.e. `push: "a"` instead of
       `push: ["a"]`)
+    - If an array is one of the items of the array, the values will be
+      concatenated. For example, `[["a", null], "b"]` will push the
+      concatenation of `a` and user input, and then push `b`.
   - `jump: [<string?>]` - push a new script to the call stack, exactly
     the same format as `push`
   - `return: ...` - pop scripts from the call stack, exactly the same
     format as `pop`.
   - `goto: <string>` - shorthand for `return: 1; jump: <string>` (jumps
     to another script without remembering this script)
-  - `exec: [<string?>]` - bash command to execute. Rather than being a
-    list of arguments, the command is simply concatenated. This means
-    that if you use `null` to take user input, you must enclose it in
-    `'` quotes (`rofi-menu-stack` makes sure it stays quoted even if the
-    user enters `'`).
-    - This will be changed in the future, so I recommend you to avoid
-      using lists in `exec` and just use strings.
+  - `exec: [<string?>]` - bash command to execute. The format is the
+    same as `push` and `jump`, each array element is an argument,
+    starting from argv0.
+    - If you only pass a single string not enclosed in an array, it will
+      be interpreted as the entire command line (rather than the argv0).
   - `fork: true` - don't wait for the bash command's completion and
     run it in the background
