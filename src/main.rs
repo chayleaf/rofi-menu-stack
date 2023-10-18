@@ -1,9 +1,8 @@
-use fork::{daemon, Fork};
+use fork::Fork;
 use serde::{de::Visitor, Deserialize, Serialize};
 use std::{
     env,
-    io::{stderr, stdin, stdout, BufRead, BufReader, Read, Write},
-    os::fd::AsRawFd,
+    io::{stdout, BufRead, BufReader, Write},
     process::{Command, Stdio},
 };
 
@@ -13,7 +12,7 @@ mod row;
 use fallback_row::*;
 use row::*;
 
-const DELIM: &str = "\x0b";
+const DELIM: char = '\x0b';
 
 #[derive(Debug, Default, Eq, PartialEq)]
 enum Selection {
@@ -80,24 +79,6 @@ impl<'a> Visitor<'a> for SelectionVisitor {
     {
         Ok(Selection::Set(v))
     }
-    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v as i64))
-    }
-    fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v as i64))
-    }
-    fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v as i64))
-    }
 }
 
 impl<'a> Deserialize<'a> for Selection {
@@ -135,11 +116,11 @@ struct ModeOptions {
 impl Default for ModeOptions {
     fn default() -> Self {
         Self {
-            prompt: "".to_owned(),
-            message: "".to_owned(),
+            prompt: String::new(),
+            message: String::new(),
             markup: Markup::None,
             selection: Selection::Reset,
-            data: "".to_owned(),
+            data: String::new(),
             fallback: None,
         }
     }
@@ -148,43 +129,43 @@ impl Default for ModeOptions {
 impl ModeOptions {
     const FIELDS: &[&'static str] = &["prompt", "message", "markup", "allow-custom", "selection"];
     fn to_rofi(&self) -> String {
-        let mut ret = "".to_owned();
+        let mut ret = String::new();
         if !self.prompt.is_empty() {
             ret.push_str("\0prompt\x1F");
             ret.push_str(&self.prompt);
-            ret.push_str(DELIM);
+            ret.push(DELIM);
         }
         if !self.message.is_empty() {
             ret.push_str("\0message\x1F");
             ret.push_str(&self.message);
-            ret.push_str(DELIM);
+            ret.push(DELIM);
         }
         if self.markup == Markup::Pango {
             ret.push_str("\0markup-rows\x1Ftrue");
-            ret.push_str(DELIM);
+            ret.push(DELIM);
         }
         if self.fallback.is_none() {
             ret.push_str("\0no-custom\x1Ftrue");
-            ret.push_str(DELIM);
+            ret.push(DELIM);
         }
         match self.selection {
             Selection::Reset => {}
             Selection::Keep => {
                 ret.push_str("\0keep-selection\x1Ftrue");
-                ret.push_str(DELIM);
+                ret.push(DELIM);
             }
             Selection::Set(new_sel) => {
                 ret.push_str("\0keep-selection\x1Ftrue");
-                ret.push_str(DELIM);
+                ret.push(DELIM);
                 ret.push_str("\0new-selection\x1F");
                 ret.push_str(&new_sel.to_string());
-                ret.push_str(DELIM);
+                ret.push(DELIM);
             }
         }
         if !self.data.is_empty() {
             ret.push_str("\0data\x1F");
             ret.push_str(&self.data);
-            ret.push_str(DELIM);
+            ret.push(DELIM);
         }
         ret
     }
@@ -305,7 +286,7 @@ impl Default for Info {
             push_val: VecString::default(),
             pop_val: Some(0),
             pop_script: Some(0),
-            exec: "".to_owned(),
+            exec: String::new(),
             fork: false,
         }
     }
@@ -373,8 +354,8 @@ fn main() {
     if !info.exec.is_empty() {
         let mut run = !info.fork;
         if info.fork {
-            if let Ok(Fork::Child) = daemon(true, true) {
-                let _ = nix::unistd::close(stdout().as_raw_fd());
+            if let Ok(Fork::Child) = fork::daemon(true, true) {
+                let _ = fork::close_fd();
                 run = true;
             }
         }
@@ -382,22 +363,10 @@ fn main() {
             let mut cmd = Command::new("bash");
             cmd.arg("-c");
             cmd.arg(&info.exec);
-            cmd.stdout(Stdio::piped());
             if let Ok(mut proc) = cmd.spawn() {
-                let mut buf = vec![0u8; 65536];
-                if let Some(stdout) = &mut proc.stdout {
-                    let mut out = stderr().lock();
-                    while let Ok(x) = stdout.read(&mut buf) {
-                        if out.write(&buf[..x]).is_err() {
-                            break;
-                        }
-                    }
-                }
                 let _ = proc.wait();
             }
             if info.fork {
-                let _ = nix::unistd::close(stderr().as_raw_fd());
-                let _ = nix::unistd::close(stdin().as_raw_fd());
                 return;
             }
         }
@@ -428,7 +397,7 @@ fn main() {
     if enable_debug {
         eprintln!("passing args {:?}", data.val_stack);
     }
-    for arg in data.val_stack.iter() {
+    for arg in &data.val_stack {
         cmd.arg(arg);
     }
     data.val_stack.reverse();
@@ -442,7 +411,7 @@ fn main() {
     if first_launch {
         out.write_all(b"\0delim\x1F")
             .expect("failed writing into stdout");
-        out.write_all(DELIM.as_bytes())
+        out.write_all(&[DELIM as u8])
             .expect("failed writing into stdout");
         out.write_all(b"\n").expect("failed writing into stdout");
     }
@@ -472,9 +441,11 @@ fn main() {
                     if first {
                         first = false;
                     } else {
-                        write!(out, "{}", DELIM).expect("failed writing into stdout");
+                        out.write_all(&[DELIM as u8])
+                            .expect("failed writing into stdout");
                     }
-                    write!(out, "{}", row).expect("failed writing into stdout");
+                    out.write_all(row.as_bytes())
+                        .expect("failed writing into stdout");
                 }
             }
             Err(err) => {

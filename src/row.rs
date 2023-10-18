@@ -16,9 +16,9 @@ pub struct Row {
 impl Default for Row {
     fn default() -> Self {
         Self {
-            text: "".to_owned(),
-            icon: "".to_owned(),
-            meta: "".to_owned(),
+            text: String::new(),
+            icon: String::new(),
+            meta: String::new(),
             selectable: true,
             info: Info::default(),
             urgent: false,

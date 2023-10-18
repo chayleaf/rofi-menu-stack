@@ -8,5 +8,4 @@ edition = "2021"
 [dependencies]
 fork = "0.1.22"
 json5 = "0.4.1"
-nix = "0.27.1"
 serde = { version = "1.0.189", features = ["derive"] }
