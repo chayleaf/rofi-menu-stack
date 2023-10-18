@@ -370,32 +370,6 @@ fn main() {
         .map(|info| json5::from_str(info).expect("failed to parse info"))
         .unwrap_or_else(|| data.fallback_info.clone().unwrap_or_default());
     let input = input.as_deref().unwrap_or_default();
-    if let Some(x) = info.pop_val {
-        if x <= data.val_stack.len() {
-            data.val_stack.truncate(data.val_stack.len() - x);
-        } else {
-            return;
-        }
-    } else {
-        data.val_stack.clear();
-    }
-    for x in info.push_val.flatten1(input) {
-        data.val_stack.push(x);
-    }
-    if data.script_stack.is_empty() {
-        eprintln!("pushing initial_script");
-        data.script_stack.extend(
-            parse_var(
-                env::var("INITIAL_SCRIPT")
-                    .expect("INITIAL_SCRIPT must be set as the default submenu to call"),
-            )
-            .expect("INITIAL_SCRIPT must be valid json5"),
-        );
-        if let Ok(x) = env::var("INITIAL_STACK") {
-            data.val_stack
-                .extend(parse_var(x).expect("INITIAL_STACK must be valid json5"));
-        }
-    }
     if !info.exec.is_empty() {
         let mut run = !info.fork;
         if info.fork {
@@ -422,6 +396,31 @@ fn main() {
                 return;
             }
         }
+    }
+    if data.script_stack.is_empty() {
+        eprintln!("pushing initial_script");
+        data.script_stack.extend(
+            parse_var(
+                env::var("INITIAL_SCRIPT")
+                    .expect("INITIAL_SCRIPT must be set as the default submenu to call"),
+            )
+            .expect("INITIAL_SCRIPT must be valid json5"),
+        );
+        if let Ok(x) = env::var("INITIAL_STACK") {
+            data.val_stack = parse_var(x).expect("INITIAL_STACK must be valid json5");
+        }
+    }
+    if let Some(x) = info.pop_val {
+        if x <= data.val_stack.len() {
+            data.val_stack.truncate(data.val_stack.len() - x);
+        } else {
+            return;
+        }
+    } else {
+        data.val_stack.clear();
+    }
+    for x in info.push_val.flatten1(input) {
+        data.val_stack.push(x);
     }
     if let Some(x) = info.pop_script {
         if x <= data.script_stack.len() {
