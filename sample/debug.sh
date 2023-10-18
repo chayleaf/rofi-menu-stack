@@ -1,5 +1,5 @@
 . ./lib.sh
-options "{'prompt':'Debug >','message':$(quote "Current stack: $*"),'fallback':{'push':[null,0]}}"
+options "{'prompt':'Debug >','message':$(quote "Current stack: $*"),'fallback':{'pop':1,'push':null}}"
 row "{'text':'!!!!Push \"a\"','push':'a'}"
-row "{'text':'!!!!Pop','push':null}"
-row "{'text':'!!!!Close','jump':null}"
+row "{'text':'!!!!Pop','pop':1}"
+row "{'text':'!!!!Close','return':null}"

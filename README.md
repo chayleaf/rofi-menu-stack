@@ -25,15 +25,18 @@ So, each entry is defined as follows:
 
 - `text: <string>` - user-facing text
 - `icon: <path>` - a path to this option's graphical icon
-- `push: <string>` - add a value on top of stack when this option is
-  selected (`$1` is top of stack)
-- `push: null` - remove a value from the top of the stack when this
-  option is selected
-- `push: [...]` - same as `push` multiple times in a row for each entry
-  in the list
-- `jump: <string>` - switch to a different submenu when this option is
-  selected
-- `jump: null` - close the submenu
+- `push: [<string?>]` - add a value on top of stack when this option is
+  selected (`$1` is top of stack). `null` means add user input.
+- `push: [null]` - add the selected option's text on top of the stack
+- `pop: null` - remove all values from the top of the stack
+- `pop: 1` - remove 1 value from the top of the stack
+- `jump: [<string?>]` - switch to a different submenu when this option
+  is selected, same format as `push`
+- `return: null` - close the submenu
+- `return: 1` - go to the previous submenu (same as `pop`)
+- `exec: <string>` - bash command to execute
+- `fork: true` - don't wait for the bash command's completion and
+  run it in the background
 
 # General options
 
@@ -45,6 +48,5 @@ General options are printed before all entries, and are mandatory.
 - `selection: 1` - to select item number 1 (0-based)
 - `selection: "keep"` - to keep whatever was selected previously
 - `fallback: {...}` - this allows the user to input custom text. If the
-  user entered it, the `push` and `jump` operations in `fallback` will
-  be executed. *Additionally*, `push` may be set to `0` (or a list
-  containing `0`) to push the user-provided input value to the stack.
+  user entered it, the `push`, `jump` and `exec`/`fork` operations in
+  `fallback` will be executed.

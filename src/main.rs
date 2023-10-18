@@ -1,5 +1,5 @@
 use fork::{daemon, Fork};
-use serde::{de::Visitor, Deserialize};
+use serde::{de::Visitor, Deserialize, Serialize};
 use std::{
     env,
     io::{stderr, stdin, stdout, BufRead, BufReader, Read, Write},
@@ -7,15 +7,11 @@ use std::{
     process::{Command, Stdio},
 };
 
+mod fallback_row;
 mod row;
-mod row2;
-mod stack_op;
-mod stack_op2;
 
+use fallback_row::*;
 use row::*;
-use row2::*;
-use stack_op::*;
-use stack_op2::*;
 
 const DELIM: &str = "\x0b";
 
@@ -212,7 +208,6 @@ impl<'a> Visitor<'a> for ModeOptionsVisitor {
                 },
                 "fallback" => ret.fallback = map.next_value()?,
                 "selection" => ret.selection = map.next_value()?,
-                // TODO: selection
                 key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
             }
         }
@@ -226,6 +221,96 @@ impl<'a> Deserialize<'a> for ModeOptions {
     }
 }
 
+#[derive(Debug, Default, Serialize)]
+#[serde(transparent)]
+pub struct VecString(pub Vec<Option<String>>);
+
+struct VecStringVisitor;
+impl<'a> Visitor<'a> for VecStringVisitor {
+    type Value = VecString;
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a list of strings")
+    }
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(VecString(vec![Some(v.to_owned())]))
+    }
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(VecString(vec![Some(v)]))
+    }
+    fn visit_borrowed_str<E>(self, v: &'a str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(VecString(vec![Some(v.to_owned())]))
+    }
+    fn visit_none<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(VecString(vec![None]))
+    }
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(VecString(vec![None]))
+    }
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'a>,
+    {
+        let mut ret = vec![];
+        while let Some(val) = seq.next_element()? {
+            ret.push(val);
+        }
+        Ok(VecString(ret))
+    }
+}
+impl<'de> Deserialize<'de> for VecString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(VecStringVisitor)
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Data {
+    script_stack: Vec<String>,
+    val_stack: Vec<String>,
+    fallback_info: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Info {
+    pub push_script: VecString,
+    pub push_val: VecString,
+    pub pop_script: Option<usize>,
+    pub pop_val: Option<usize>,
+    pub exec: String,
+    pub fork: bool,
+}
+
+impl Default for Info {
+    fn default() -> Self {
+        Self {
+            push_script: VecString::default(),
+            push_val: VecString::default(),
+            pop_val: Some(0),
+            pop_script: Some(0),
+            exec: "".to_owned(),
+            fork: false,
+        }
+    }
+}
+
 fn main() {
     // 0: init
     // 1: selected entry
@@ -235,7 +320,7 @@ fn main() {
     // common info
     let data = env::var("ROFI_DATA").ok();
     // row info
-    let mut info = env::var("ROFI_INFO").ok();
+    let info = env::var("ROFI_INFO").ok();
     let input = env::args().nth(1);
     let first_launch = info.is_none() && data.is_none();
     let enable_debug = cfg!(debug_assertions);
@@ -244,112 +329,94 @@ fn main() {
     }
     // row text
     // let selected = env::args().nth(1);
-    let mut stack = Vec::<String>::new();
-    if let Some(data) = data {
-        let mut it = data.split('\x04');
-        if let Some(fallback) = it.next() {
-            for val in it {
-                stack.push(val.to_owned());
-            }
-            if info.is_none() {
-                info = Some(fallback.to_owned());
-                if enable_debug {
-                    eprintln!("new info {info:?}");
-                }
-            }
-        }
-    }
+    let mut data: Data = json5::from_str(&data.unwrap_or_default()).unwrap_or_default();
+    let info: Info = json5::from_str(
+        info.as_deref()
+            .unwrap_or_else(|| data.fallback_info.as_deref().unwrap_or_default()),
+    )
+    .unwrap_or_default();
     let input = input.as_deref().unwrap_or_default();
-    let entry = if let Some(info) = info {
-        let mut ops: FallbackStackOps = info
-            .parse()
-            .expect("invalid ROFI_INFO (expected stack operation list)");
-        if !ops.0.is_empty() {
-            for op in ops.0.drain(..ops.0.len() - 1) {
-                op.apply(input, &mut stack);
-            }
-            match ops.0.into_iter().next().unwrap() {
-                x @ (FallbackStackOp::Push(_) | FallbackStackOp::PushUser) => {
-                    let mut s = match x {
-                        FallbackStackOp::Push(s) => s,
-                        _ => input.to_owned(),
-                    };
-                    if enable_debug {
-                        eprintln!("using {s}");
-                    }
-                    if let Some(x) = s.find(';') {
-                        let cmd = s.split_off(x + 1);
-                        s.pop();
-                        let (cmdline, fork) = if let Some(cmd) = cmd.strip_prefix(';') {
-                            (cmd, true)
-                        } else {
-                            (&cmd[..], false)
-                        };
-                        let mut run = !fork;
-                        if fork {
-                            if let Ok(Fork::Child) = daemon(true, true) {
-                                let _ = nix::unistd::close(stdout().as_raw_fd());
-                                run = true;
-                            }
-                        }
-                        if run {
-                            let mut cmd = Command::new("bash");
-                            cmd.arg("-c");
-                            cmd.arg(cmdline);
-                            cmd.stdout(Stdio::piped());
-                            if let Ok(mut proc) = cmd.spawn() {
-                                let mut buf = vec![0u8; 65536];
-                                if let Some(stdout) = &mut proc.stdout {
-                                    let mut out = stderr().lock();
-                                    while let Ok(x) = stdout.read(&mut buf) {
-                                        if out.write(&buf[..x]).is_err() {
-                                            break;
-                                        }
-                                    }
-                                }
-                                let _ = proc.wait();
-                            }
-                            if fork {
-                                let _ = nix::unistd::close(stderr().as_raw_fd());
-                                let _ = nix::unistd::close(stdin().as_raw_fd());
-                                return;
-                            }
-                        }
-                    }
-                    s
-                }
-                FallbackStackOp::Pop => {
-                    if enable_debug {
-                        eprintln!("quitting!");
-                    }
-                    return;
-                }
-            }
+    if let Some(x) = info.pop_val {
+        if x <= data.val_stack.len() {
+            data.val_stack.truncate(data.val_stack.len() - x);
         } else {
-            if enable_debug {
-                eprintln!("using INITIAL_SCRIPT");
-            }
-            env::var("INITIAL_SCRIPT")
-                .expect("INITIAL_SCRIPT must be set as the default submenu to call")
+            data.val_stack.clear();
         }
     } else {
-        if enable_debug {
-            eprintln!("using INITIAL_SCRIPT");
+        data.val_stack.clear();
+    }
+    for op in info.push_val.0.clone() {
+        data.val_stack.push(op.unwrap_or_else(|| input.to_owned()));
+    }
+    if data.script_stack.is_empty() {
+        eprintln!("pushing initial_script");
+        data.script_stack.push(
+            env::var("INITIAL_SCRIPT")
+                .expect("INITIAL_SCRIPT must be set as the default submenu to call"),
+        );
+    }
+    if !info.exec.is_empty() {
+        let mut run = !info.fork;
+        if info.fork {
+            if let Ok(Fork::Child) = daemon(true, true) {
+                let _ = nix::unistd::close(stdout().as_raw_fd());
+                run = true;
+            }
         }
-        env::var("INITIAL_SCRIPT")
-            .expect("INITIAL_SCRIPT must be set as the default submenu to call")
-    };
+        if run {
+            let mut cmd = Command::new("bash");
+            cmd.arg("-c");
+            cmd.arg(&info.exec);
+            cmd.stdout(Stdio::piped());
+            if let Ok(mut proc) = cmd.spawn() {
+                let mut buf = vec![0u8; 65536];
+                if let Some(stdout) = &mut proc.stdout {
+                    let mut out = stderr().lock();
+                    while let Ok(x) = stdout.read(&mut buf) {
+                        if out.write(&buf[..x]).is_err() {
+                            break;
+                        }
+                    }
+                }
+                let _ = proc.wait();
+            }
+            if info.fork {
+                let _ = nix::unistd::close(stderr().as_raw_fd());
+                let _ = nix::unistd::close(stdin().as_raw_fd());
+                return;
+            }
+        }
+    }
+    if let Some(x) = info.pop_script {
+        if x <= data.script_stack.len() {
+            data.script_stack.truncate(data.script_stack.len() - x);
+        } else {
+            return;
+        }
+    } else {
+        data.script_stack.clear();
+    }
+    for op in info.push_script.0.clone() {
+        data.script_stack
+            .push(op.unwrap_or_else(|| input.to_owned()));
+    }
+    if enable_debug {
+        eprintln!("data {data:?}, info {info:?}");
+    }
+    if data.script_stack.is_empty() {
+        return;
+    }
     let mut cmd = Command::new("bash");
     cmd.arg("--");
-    cmd.arg(entry.clone());
-    stack.reverse();
+    cmd.arg(data.script_stack.last().unwrap());
+    data.val_stack.reverse();
     if enable_debug {
-        eprintln!("passing args {stack:?}");
+        eprintln!("passing args {:?}", data.val_stack);
     }
-    for arg in stack.iter() {
+    for arg in data.val_stack.iter() {
         cmd.arg(arg);
     }
-    stack.reverse();
+    data.val_stack.reverse();
     cmd.stdout(Stdio::piped());
     let cmd = cmd.spawn().expect("failed to spawn script");
     let mut buf = BufReader::new(cmd.stdout.expect("script is missing stdout?"));
@@ -366,16 +433,11 @@ fn main() {
     }
     eprintln!("opts: {line:?}");
     let mut opts: ModeOptions = json5::from_str(&line).expect("failed to parse menu options");
-    if let Some(fallback) = &mut opts.fallback {
-        if fallback.next_script.is_none() {
-            fallback.next_script = Some(FallbackStackOp::Push(entry.clone()));
-        }
-        opts.data.push_str(&fallback.info());
-    }
-    for elem in stack {
-        opts.data.push('\x04');
-        opts.data.push_str(&elem);
-    }
+    data.fallback_info = opts
+        .fallback
+        .as_ref()
+        .map(|x| json5::to_string(x).expect("failed to serialize fallback row"));
+    opts.data = json5::to_string(&data).expect("failed to serialize data");
     write!(out, "{}", opts.to_rofi()).expect("failed writing menu options into stdout");
     let mut first = true;
     while let Ok(len) = buf.read_line({
@@ -390,10 +452,7 @@ fn main() {
             eprintln!("got a row {line:?}");
         }
         match json5::from_str::<Row>(line) {
-            Ok(mut row) => {
-                if row.next_script.is_none() {
-                    row.next_script = Some(StackOp::Push(entry.clone()));
-                }
+            Ok(row) => {
                 if let Some(row) = row.to_rofi() {
                     if first {
                         first = false;

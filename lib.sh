@@ -6,7 +6,7 @@ options() {
     exit 1
   fi
   wrote_options=1
-  echo "$1"
+  echo "$@"
 }
 
 row() {
@@ -14,7 +14,7 @@ row() {
     echo "You must write options first!" >&2
     exit 1
   fi
-  echo "$1"
+  echo "$@"
 }
 
 quote() {
