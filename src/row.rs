@@ -1,8 +1,7 @@
-use serde::{de::Visitor, Deserialize, Serialize};
+use serde::{de::Visitor, Deserialize};
 
 use crate::Info;
 
-#[derive(Serialize)]
 pub struct Row {
     pub text: String,
     pub icon: String,

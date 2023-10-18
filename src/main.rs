@@ -1,5 +1,5 @@
 use fork::Fork;
-use serde::{de::Visitor, Deserialize, Serialize, ser::SerializeSeq};
+use serde::{de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 use std::{
     env,
     io::{stdout, BufRead, BufReader, Write},
@@ -202,7 +202,7 @@ impl<'a> Deserialize<'a> for ModeOptions {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum VecString {
     Multi(Vec<VecString>),
     Single(String),
@@ -215,7 +215,11 @@ impl VecString {
     }
     fn flatten(&self, input: &str) -> String {
         match self {
-            Self::Multi(v) => v.iter().map(|x| x.flatten(input)).collect::<Vec<_>>().join(""),
+            Self::Multi(v) => v
+                .iter()
+                .map(|x| x.flatten(input))
+                .collect::<Vec<_>>()
+                .join(""),
             Self::Single(s) => s.clone(),
             Self::UserInput => input.to_owned(),
         }
@@ -230,7 +234,10 @@ impl VecString {
 }
 
 impl Serialize for VecString {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
         match self {
             Self::UserInput => serializer.serialize_none(),
             Self::Single(s) => serializer.serialize_some(s),
@@ -305,10 +312,10 @@ impl<'de> Deserialize<'de> for VecString {
 struct Data {
     script_stack: Vec<String>,
     val_stack: Vec<String>,
-    fallback_info: Option<String>,
+    fallback_info: Option<Info>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Info {
     pub push_script: VecString,
     pub push_val: VecString,
@@ -358,11 +365,10 @@ fn main() {
         eprintln!("data {data:?}, info {info:?}");
     }
     let mut data: Data = json5::from_str(&data.unwrap_or_default()).unwrap_or_default();
-    let info: Info = json5::from_str(
-        info.as_deref()
-            .unwrap_or_else(|| data.fallback_info.as_deref().unwrap_or_default()),
-    )
-    .unwrap_or_default();
+    let info: Info = info
+        .as_deref()
+        .map(|info| json5::from_str(info).expect("failed to parse info"))
+        .unwrap_or_else(|| data.fallback_info.clone().unwrap_or_default());
     let input = input.as_deref().unwrap_or_default();
     if let Some(x) = info.pop_val {
         if x <= data.val_stack.len() {
@@ -463,10 +469,7 @@ fn main() {
     }
     eprintln!("opts: {line:?}");
     let mut opts: ModeOptions = json5::from_str(&line).expect("failed to parse menu options");
-    data.fallback_info = opts
-        .fallback
-        .as_ref()
-        .map(|x| json5::to_string(x).expect("failed to serialize fallback row"));
+    data.fallback_info = opts.fallback.clone().map(|x| x.0);
     opts.data = json5::to_string(&data).expect("failed to serialize data");
     write!(out, "{}", opts.to_rofi()).expect("failed writing menu options into stdout");
     let mut first = true;

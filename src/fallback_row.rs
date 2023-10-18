@@ -1,9 +1,9 @@
-use serde::{de::Visitor, Deserialize, Serialize};
+use serde::{de::Visitor, Deserialize};
 
 use crate::Info;
 
-#[derive(Default, Serialize)]
-pub struct FallbackRow(Info);
+#[derive(Clone, Default)]
+pub struct FallbackRow(pub Info);
 
 impl FallbackRow {
     const FIELDS: &[&'static str] = &["push", "pop", "jump", "goto", "return", "exec", "fork"];
