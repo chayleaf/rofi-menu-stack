@@ -81,22 +81,22 @@ Each entry is defined as follows:
   - `pop: null` - remove all values from the stack
   - `pop: <number>` - remove a certain amount of values from the top of
     the stack
-  - `push: [<string?>]` - add values on top of stack when this option is
-    selected. `null` means add user input.
+  - `push: <string/list/null>` - add values on top of the stack when
+    this option is selected. `null` means add user input.
     - If only one item is to be pushed, you can simply use that item
-      instead of enclosing it in an array (i.e. `push: "a"` instead of
+      instead of enclosing it in a list (i.e. `push: "a"` instead of
       `push: ["a"]`)
-    - If an array is one of the items of the array, the values will be
+    - If a list is one of the items of the list, the values will be
       concatenated. For example, `[["a", null], "b"]` will push the
       concatenation of `a` and user input, and then push `b`.
-  - `jump: [<string?>]` - push a new script to the call stack, exactly
-    the same format as `push`
+  - `jump: <string/list/null>` - push a new script to the call stack,
+    exactly the same format as `push`
   - `return: ...` - pop scripts from the call stack, exactly the same
     format as `pop`.
   - `goto: <string>` - shorthand for `return: 1; jump: <string>` (jumps
     to another script without remembering this script)
-  - `exec: [<string?>]` - bash command to execute. The format is the
-    same as `push` and `jump`, each array element is an argument,
+  - `exec: <string/list/null>` - bash command to execute. The format
+    is the same as `push` and `jump`, each array element is an argument,
     starting from argv0.
     - If you only pass a single string not enclosed in an array, it will
       be interpreted as the entire command line (rather than the argv0).
