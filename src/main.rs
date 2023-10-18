@@ -210,11 +210,7 @@ impl VecString {
     }
     fn flatten(&self, input: &str) -> String {
         match self {
-            Self::Multi(v) => v
-                .iter()
-                .map(|x| x.flatten(input))
-                .collect::<Vec<_>>()
-                .join(""),
+            Self::Multi(v) => v.iter().map(|x| x.flatten(input)).collect::<String>(),
             Self::Single(s) => s.clone(),
             Self::UserInput => input.to_owned(),
         }
@@ -360,34 +356,30 @@ fn main() {
         eprintln!("data {data:?}, info {info:?}");
     }
     let mut data: Data = json5::from_str(&data.unwrap_or_default()).unwrap_or_default();
-    let info: Info = info
-        .as_deref()
-        .map(|info| json5::from_str(info).expect("failed to parse info"))
-        .unwrap_or_else(|| data.fallback.clone().unwrap_or_default());
+    let info: Info = info.as_deref().map_or_else(
+        || data.fallback.clone().unwrap_or_default(),
+        |info| json5::from_str(info).expect("failed to parse info"),
+    );
     let input = input.as_deref().unwrap_or_default();
-    if !info.exec.is_empty() {
-        let mut run = !info.fork;
-        if info.fork {
-            if let Ok(Fork::Child) = fork::daemon(true, true) {
+    if !info.exec.is_empty()
+        && (!info.fork
+            || (matches!(fork::daemon(true, true), Ok(Fork::Child)) && {
                 let _ = fork::close_fd();
-                run = true;
-            }
+                true
+            }))
+    {
+        let mut cmd = Command::new("bash");
+        cmd.arg("-c");
+        if matches!(info.exec, VecString::Multi(_)) {
+            cmd.arg("\"$0\" \"$@\"").args(info.exec.flatten1(input));
+        } else {
+            cmd.arg(info.exec.flatten(input));
         }
-        if run {
-            let mut cmd = Command::new("bash");
-            cmd.arg("-c");
-            if matches!(info.exec, VecString::Multi(_)) {
-                cmd.arg("\"$0\" \"$@\"")
-                    .args(info.exec.flatten1(input).into_iter());
-            } else {
-                cmd.arg(info.exec.flatten(input));
-            }
-            if let Ok(mut proc) = cmd.spawn() {
-                let _ = proc.wait();
-            }
-            if info.fork {
-                return;
-            }
+        if let Ok(mut proc) = cmd.spawn() {
+            let _ = proc.wait();
+        }
+        if info.fork {
+            return;
         }
     }
     if data.call_stack.is_empty() {
@@ -432,13 +424,11 @@ fn main() {
     if enable_debug {
         eprintln!("data {data:?}, info {info:?}");
     }
-    if data.call_stack.is_empty() {
+    let Some(argv0) = data.call_stack.last() else {
         return;
-    }
+    };
     let mut cmd = Command::new("bash");
-    cmd.arg("-c")
-        .arg("\"$0\" \"$@\"")
-        .arg(data.call_stack.last().unwrap());
+    cmd.arg("-c").arg("\"$0\" \"$@\"").arg(argv0);
     if enable_debug {
         data.stack.reverse();
         eprintln!("passing args {:?}", data.stack);
