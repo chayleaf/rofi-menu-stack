@@ -5,7 +5,7 @@ Technically it can be adapted to other menus (like `bemenu`/`dmenu`),
 but I'm not interested in it because `rofi` has more features anyway.
 
 I've made this because I want to create a declarative alternative to
-[SXMO](https://sxmo.org). It uses dmenu/bemenu extensively.
+[SXMO](https://sxmo.org), which uses dmenu/bemenu extensively.
 
 As an example, let's assume we want to create a "system settings" menu,
 and that we will have a `Settings -> Audio -> <device> -> Volume`
@@ -21,7 +21,7 @@ is necessary as well, so the back button can work.
 ## Dependencies
 
 lib.sh depends on `jq`. Of course, `rofi` is required as well (I use
-`rofi-wayland`).
+[`rofi-wayland`](https://github.com/lbonn/rofi)).
 
 ## Spec
 
