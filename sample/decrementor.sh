@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 . ./lib.sh
 a="$1"
 options "{prompt:'Decrementor >',message:$(val "Current value: $a"),selection:null}"

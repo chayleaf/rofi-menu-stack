@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 . ./lib.sh
 options "{prompt:'Debug >',message:$(val "Current stack: $*"),fallback:{push:null}}"
 row "{text:'!!!!Pop',pop:1}"

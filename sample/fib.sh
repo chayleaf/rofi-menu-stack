@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 . ./lib.sh
 i="$1"
 nxt="$2"
