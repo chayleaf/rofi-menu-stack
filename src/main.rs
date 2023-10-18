@@ -275,7 +275,7 @@ pub struct Info {
     pub push_val: VecString,
     pub pop_script: Option<usize>,
     pub pop_val: Option<usize>,
-    pub exec: String,
+    pub exec: VecString,
     pub fork: bool,
 }
 
@@ -286,7 +286,7 @@ impl Default for Info {
             push_val: VecString::default(),
             pop_val: Some(0),
             pop_script: Some(0),
-            exec: String::new(),
+            exec: VecString::default(),
             fork: false,
         }
     }
@@ -351,7 +351,7 @@ fn main() {
                 .extend(parse_var(x).expect("INITIAL_STACK must be valid json5"));
         }
     }
-    if !info.exec.is_empty() {
+    if !info.exec.0.is_empty() {
         let mut run = !info.fork;
         if info.fork {
             if let Ok(Fork::Child) = fork::daemon(true, true) {
@@ -362,7 +362,11 @@ fn main() {
         if run {
             let mut cmd = Command::new("bash");
             cmd.arg("-c");
-            cmd.arg(&info.exec);
+            let mut exec = String::new();
+            for x in &info.exec.0 {
+                exec.push_str(&x.clone().unwrap_or_else(|| input.replace('\'', "'\"'\"'")));
+            }
+            cmd.arg(&exec);
             if let Ok(mut proc) = cmd.spawn() {
                 let _ = proc.wait();
             }

@@ -6,7 +6,7 @@ use crate::Info;
 pub struct FallbackRow(Info);
 
 impl FallbackRow {
-    const FIELDS: &[&'static str] = &["push", "jump", "goto", "exec", "fork"];
+    const FIELDS: &[&'static str] = &["push", "pop", "jump", "goto", "return", "exec", "fork"];
 }
 
 struct RowVisitor;
@@ -23,7 +23,9 @@ impl<'a> Visitor<'a> for RowVisitor {
                 "pop" => ret.0.pop_val = map.next_value()?,
                 "jump" => ret.0.push_script = map.next_value()?,
                 "goto" => {
-                    ret.0.pop_script = Some(1);
+                    if let Some(x) = &mut ret.0.pop_script {
+                        *x += 1;
+                    }
                     ret.0.push_script = map.next_value()?;
                 }
                 "return" => ret.0.pop_script = map.next_value()?,

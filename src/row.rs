@@ -33,14 +33,15 @@ impl Row {
         "icon",
         "meta",
         "selectable",
+        "urgent",
+        "active",
         "push",
         "pop",
         "jump",
         "goto",
+        "return",
         "exec",
         "fork",
-        "urgent",
-        "active",
     ];
 
     pub fn info(&self) -> String {
@@ -115,18 +116,20 @@ impl<'a> Visitor<'a> for RowVisitor {
                 "icon" => ret.icon = map.next_value()?,
                 "meta" => ret.meta = map.next_value()?,
                 "selectable" => ret.selectable = map.next_value()?,
+                "urgent" => ret.urgent = map.next_value()?,
+                "active" => ret.active = map.next_value()?,
                 "push" => ret.info.push_val = map.next_value()?,
                 "pop" => ret.info.pop_val = map.next_value()?,
                 "jump" => ret.info.push_script = map.next_value()?,
                 "goto" => {
-                    ret.info.pop_script = Some(1);
+                    if let Some(x) = &mut ret.info.pop_script {
+                        *x += 1;
+                    }
                     ret.info.push_script = map.next_value()?;
                 }
                 "return" => ret.info.pop_script = map.next_value()?,
                 "exec" => ret.info.exec = map.next_value()?,
                 "fork" => ret.info.fork = map.next_value()?,
-                "urgent" => ret.urgent = map.next_value()?,
-                "active" => ret.active = map.next_value()?,
                 key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
             }
         }
