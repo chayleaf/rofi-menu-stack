@@ -1,8 +1,11 @@
+TODO: keep selection as row property
+
 # rofi-menu-stack
 
 This is a stack machine for writing complex menus in `rofi{,-wayland}`.
-Technically it can be adapted to other menus (like `bemenu`/`dmenu`),
-but I'm not interested in it because `rofi` has more features anyway.
+Think a Forth DSL for `bash`+`rofi`... Technically it can be adapted to
+other menus (like `bemenu`/`dmenu`), but I'm not interested in it
+because `rofi` has more features anyway.
 
 I've made this because I want to create a declarative alternative to
 [SXMO](https://sxmo.org), which uses dmenu/bemenu extensively.

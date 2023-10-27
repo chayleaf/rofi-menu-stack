@@ -183,7 +183,7 @@ impl<'a> Visitor<'a> for ModeOptionsVisitor {
                     key => return Err(serde::de::Error::unknown_variant(key, Markup::FIELDS)),
                 },
                 "fallback" => ret.data.fallback = Some(map.next_value::<FallbackRow>()?.0),
-                "selection" => ret.selection = map.next_value()?,
+                "select" | "selection" => ret.selection = map.next_value()?,
                 key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
             }
         }
@@ -351,6 +351,29 @@ fn main() {
     // row text
     let input = env::args().nth(1);
     let first_launch = info.is_none() && data.is_none();
+    if first_launch {
+        if let Some(input) = input {
+            #[allow(clippy::single_match)]
+            match input.as_str() {
+                "unjson5" => {
+                    println!(
+                        "{}",
+                        serde_json::to_string(
+                            &json5::from_str::<serde_json::Value>(
+                                &env::args()
+                                    .nth(2)
+                                    .expect("provide json5 to convert to json")
+                            )
+                            .expect("invalid json5")
+                        )
+                        .expect("failed to serialize json")
+                    );
+                }
+                _ => {}
+            }
+            return;
+        }
+    }
     let enable_debug = cfg!(debug_assertions);
     if enable_debug {
         eprintln!("data {data:?}, info {info:?}");
@@ -428,7 +451,7 @@ fn main() {
         return;
     };
     let mut cmd = Command::new("bash");
-    cmd.arg("-c").arg("\"$0\" \"$@\"").arg(argv0);
+    cmd.arg("-c").arg("\"$0\" \"$@\"").arg(argv0).env("_CALL_STACK_LEN", (data.call_stack.len() - 1).to_string());
     if enable_debug {
         data.stack.reverse();
         eprintln!("passing args {:?}", data.stack);
