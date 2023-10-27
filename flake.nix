@@ -14,5 +14,6 @@
       };
       default = rofi-menu-stack;
     });
+    lib.x86_64-linux = import ./lib.nix { inherit (nixpkgs) lib; };
   };
 }

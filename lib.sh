@@ -2,13 +2,27 @@ wrote_options=""
 
 # write options
 # arg1: options in json5 format
-options() {
+raw_options() {
   if [ -n "$wrote_options" ]; then
     echo "Already wrote options!" >&2
     exit 1
   fi
   wrote_options=1
   echo "$@"
+}
+
+_options() {
+  echo -n "{"
+  while (( "$#" >= 2 )); do
+    echo -n "$(val "$1"):$2,"
+    shift 2
+  done
+  echo "}"
+}
+# write options in key-value pairs (key = string, value = JSON)
+# example: options prompt "$(val "prompt text")"
+options() {
+  raw_options "$(_options "$@")"
 }
 
 # write row (raw json5)
@@ -22,7 +36,7 @@ raw() {
 }
 
 _row() {
-  echo -n "{text:$(val "$1")"
+  echo -n "{text:$1"
   shift 1
   while (( "$#" >= 2 )); do
     echo -n ",$(val "$1"):$2"
@@ -30,7 +44,7 @@ _row() {
   done
   echo "}"
 }
-# write row (first text, then string key-json value pairs)
+# write row (first text as JSON, then string key-json value pairs)
 # example: row "row text" pop 1 push "$(val string_to_push)"
 row() {
   raw "$(_row "$@")"
