@@ -64,6 +64,8 @@ is a valid instance of menu options.
 - `markup: "pango"` - to enable pango markup
 - `selection: <number>` - to select item by index (0-based)
 - `selection: "keep"` - to keep whatever was selected previously
+- `autoselect: true` - to autoselect the only option available if
+  there's only one (allows modifying the stacks without user input)
 - `fallback: {...}` - this allows the user to input custom text. The
   format is similar to per-row options, but doesn't allow any cosmetic
   fields (i.e. only stack operations/commands are accepted).
