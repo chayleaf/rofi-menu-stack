@@ -7,198 +7,13 @@ use std::{
 };
 
 mod fallback_row;
+mod options;
 mod row;
 
-use fallback_row::FallbackRow;
+use options::ModeOptions;
 use row::Row;
 
 const DELIM: char = '\x0b';
-
-#[derive(Debug, Default, Eq, PartialEq)]
-enum Selection {
-    /// Reset selection to the first item
-    #[default]
-    Reset,
-    /// Keep previously selected item
-    Keep,
-    /// Set selection to item X
-    Set(i64),
-}
-
-struct SelectionVisitor;
-impl<'a> Visitor<'a> for SelectionVisitor {
-    type Value = Selection;
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("selection")
-    }
-    fn visit_unit<E>(self) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Keep)
-    }
-    fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v.into()))
-    }
-    fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v.into()))
-    }
-    fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v.into()))
-    }
-    fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v.into()))
-    }
-    fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v.into()))
-    }
-    fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v.into()))
-    }
-    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Selection::Set(v))
-    }
-}
-
-impl<'a> Deserialize<'a> for Selection {
-    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_any(SelectionVisitor)
-    }
-}
-
-#[derive(Debug, Default, Eq, PartialEq)]
-enum Markup {
-    #[default]
-    None,
-    Pango,
-}
-
-impl Markup {
-    const ITEMS: &[&'static str] = &["pango"];
-}
-
-struct ModeOptions {
-    /// Prompt text
-    prompt: String,
-    /// Message text (for explanations etc)
-    message: String,
-    /// Markup format
-    markup: Markup,
-    /// Selection mode
-    selection: Selection,
-    /// Next ROFI_DATA
-    data: Data,
-    /// Whether to autoselect the only item if there's only one item
-    autoselect: bool,
-}
-
-impl Default for ModeOptions {
-    fn default() -> Self {
-        Self {
-            prompt: String::new(),
-            message: String::new(),
-            markup: Markup::None,
-            selection: Selection::Reset,
-            data: Data::default(),
-            autoselect: false,
-        }
-    }
-}
-
-impl ModeOptions {
-    const FIELDS: &[&'static str] = &["prompt", "message", "markup", "allow-custom", "selection"];
-    fn to_rofi(&self) -> String {
-        let mut ret = String::new();
-        if !self.prompt.is_empty() {
-            ret.push_str("\0prompt\x1F");
-            ret.push_str(&self.prompt);
-            ret.push(DELIM);
-        }
-        if !self.message.is_empty() {
-            ret.push_str("\0message\x1F");
-            ret.push_str(&self.message);
-            ret.push(DELIM);
-        }
-        if self.markup == Markup::Pango {
-            ret.push_str("\0markup-rows\x1Ftrue");
-            ret.push(DELIM);
-        }
-        if self.data.fallback.is_none() {
-            ret.push_str("\0no-custom\x1Ftrue");
-            ret.push(DELIM);
-        }
-        match self.selection {
-            Selection::Reset => {}
-            Selection::Keep => {
-                ret.push_str("\0keep-selection\x1Ftrue");
-                ret.push(DELIM);
-            }
-            Selection::Set(new_sel) => {
-                ret.push_str("\0keep-selection\x1Ftrue");
-                ret.push(DELIM);
-                ret.push_str("\0new-selection\x1F");
-                ret.push_str(&new_sel.to_string());
-                ret.push(DELIM);
-            }
-        }
-        ret.push_str("\0data\x1F");
-        ret.push_str(&json5::to_string(&self.data).expect("failed to serialize data"));
-        ret.push(DELIM);
-        ret
-    }
-}
-
-struct ModeOptionsVisitor;
-impl<'a> Visitor<'a> for ModeOptionsVisitor {
-    type Value = ModeOptions;
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("an object")
-    }
-    fn visit_map<A: serde::de::MapAccess<'a>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-        let mut ret = Self::Value::default();
-        while let Some(key) = map.next_key::<String>()? {
-            match key.as_str() {
-                "prompt" => ret.prompt = map.next_value()?,
-                "message" => ret.message = map.next_value()?,
-                "markup" => match map.next_value::<String>()?.as_str() {
-                    "pango" => ret.markup = Markup::Pango,
-                    key => return Err(serde::de::Error::unknown_variant(key, Markup::ITEMS)),
-                },
-                "fallback" => ret.data.fallback = Some(map.next_value::<FallbackRow>()?.0),
-                "select" | "selection" => ret.selection = map.next_value()?,
-                key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
-            }
-        }
-        Ok(ret)
-    }
-}
-
-impl<'a> Deserialize<'a> for ModeOptions {
-    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_any(ModeOptionsVisitor)
-    }
-}
 
 #[derive(Clone, Debug)]
 pub enum VecString {
@@ -303,10 +118,10 @@ impl<'de> Deserialize<'de> for VecString {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct Data {
-    stack: Vec<String>,
-    call_stack: Vec<String>,
-    fallback: Option<Info>,
+pub struct Data {
+    pub stack: Vec<String>,
+    pub call_stack: Vec<String>,
+    pub fallback: Option<Info>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -317,6 +132,7 @@ pub struct Info {
     pub pop: Option<usize>,
     pub exec: VecString,
     pub fork: bool,
+    pub menu: Option<Box<ModeOptions>>,
 }
 
 impl Default for Info {
@@ -328,6 +144,7 @@ impl Default for Info {
             pop_call: Some(0),
             exec: VecString::Multi(vec![]),
             fork: false,
+            menu: None,
         }
     }
 }
@@ -365,12 +182,13 @@ fn main() {
                             &json5::from_str::<serde_json::Value>(
                                 &env::args()
                                     .nth(2)
-                                    .expect("provide json5 to convert to json")
+                                    .expect("provide json5 to convert to json"),
                             )
-                            .expect("invalid json5")
+                            .expect("invalid json5"),
                         )
-                        .expect("failed to serialize json")
-                    ).expect("failed writing into stdout");
+                        .expect("failed to serialize json"),
+                    )
+                    .expect("failed writing into stdout");
                 }
                 _ => {}
             }
@@ -483,6 +301,9 @@ fn main() {
         let mut opts: ModeOptions = json5::from_str(&line).expect("failed to parse menu options");
         opts.data.call_stack = data.call_stack.clone();
         opts.data.stack = data.stack.clone();
+        if let Some(menu) = &info.menu {
+            opts.merge(menu);
+        }
         let mut first = true;
         let mut first_row = None;
         while let Ok(len) = buf.read_line({

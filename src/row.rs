@@ -1,6 +1,6 @@
 use serde::{de::Visitor, Deserialize};
 
-use crate::Info;
+use crate::{Info, ModeOptions};
 
 pub struct Row {
     pub text: String,
@@ -41,6 +41,7 @@ impl Row {
         "return",
         "exec",
         "fork",
+        "menu",
     ];
 
     pub fn info(&self) -> String {
@@ -129,6 +130,7 @@ impl<'a> Visitor<'a> for RowVisitor {
                 "return" => ret.info.pop_call = map.next_value()?,
                 "exec" => ret.info.exec = map.next_value()?,
                 "fork" => ret.info.fork = map.next_value()?,
+                "menu" => ret.info.menu = Some(map.next_value::<ModeOptions>()?.into()),
                 key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
             }
         }

@@ -1,5 +1,3 @@
-TODO: keep selection as row property
-
 # rofi-menu-stack
 
 This is a stack machine for writing complex menus in `rofi{,-wayland}`.
@@ -107,3 +105,5 @@ Each entry is defined as follows:
       be interpreted as the entire command line (rather than the argv0).
   - `fork: true` - don't wait for the bash command's completion and
     run it in the background
+  - `menu: {...}` - menu options to override after this option is
+    selected

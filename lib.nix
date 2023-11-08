@@ -47,6 +47,10 @@ let self = {
           default = false;
           type = bashBool;
         };
+        menu = lib.mkOption {
+          default = {};
+          type = submenu;
+        };
       } // lib.optionalAttrs cosmetic {
         text = lib.mkOption {
           type = bashStr;

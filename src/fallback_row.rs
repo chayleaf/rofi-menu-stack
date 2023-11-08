@@ -1,12 +1,14 @@
 use serde::{de::Visitor, Deserialize};
 
-use crate::Info;
+use crate::{Info, ModeOptions};
 
 #[derive(Clone, Default)]
 pub struct FallbackRow(pub Info);
 
 impl FallbackRow {
-    const FIELDS: &[&'static str] = &["push", "pop", "jump", "goto", "return", "exec", "fork"];
+    const FIELDS: &[&'static str] = &[
+        "push", "pop", "jump", "goto", "return", "exec", "fork", "menu",
+    ];
 }
 
 struct RowVisitor;
@@ -31,6 +33,7 @@ impl<'a> Visitor<'a> for RowVisitor {
                 "return" => ret.0.pop_call = map.next_value()?,
                 "exec" => ret.0.exec = map.next_value()?,
                 "fork" => ret.0.fork = map.next_value()?,
+                "menu" => ret.0.menu = Some(map.next_value::<ModeOptions>()?.into()),
                 key => return Err(serde::de::Error::unknown_field(key, Self::Value::FIELDS)),
             }
         }
