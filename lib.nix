@@ -146,13 +146,13 @@ let self = {
     builtins.concatStringsSep " " ([
       "row ${self.escapeBashVal row.text}"
     ] ++ lib.mapAttrsToList
-      (k: v: "${k} ${self.escapeBashVal v}")
+      (k: v: "${k} ${self.escapeBashVal (if k == "menu" then self.filterJson self.types.submenu v else v)}")
       (self.filterJson self.types.row (builtins.removeAttrs row [ "enable" "_bash" "text" ])));
   compileOptions = options: if options._bash != null then options._bash else
     builtins.concatStringsSep " " ([
       "options"
     ] ++ lib.mapAttrsToList
-      (k: v: "${k} ${self.escapeBashVal v}")
+      (k: v: "${k} ${self.escapeBashVal (if k == "fallback" then self.filterJson self.types.fallbackRow v else v)}")
       (self.filterJson self.types.submenu (builtins.removeAttrs options [ "enable" "execPre" "_bash" "rows" ])));
   compileMenu = menu: ''
     . ${./lib.sh}
