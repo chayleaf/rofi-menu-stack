@@ -42,6 +42,10 @@ let self = {
           default = [ ];
           type = stringListNull;
         };
+        goto = lib.mkOption {
+          default = [ ];
+          type = stringListNull;
+        };
         return = lib.mkOption {
           default = 0;
           type = lib.types.nullOr bashInt;
@@ -152,6 +156,7 @@ let self = {
       (self.filterJson self.types.submenu (builtins.removeAttrs options [ "enable" "execPre" "_bash" "rows" ])));
   compileMenu = menu: ''
     . ${./lib.sh}
+    ${menu.execPre}
     ${self.compileOptions menu}
     ${builtins.concatStringsSep "\n" (map self.compileRow (builtins.attrValues menu.rows))}
   '';
